@@ -9,10 +9,11 @@ type LazyList<A> = {
   ) => LazyList<A>;
   take: (count: number) => LazyList<A>;
   sequential: () => Promise<A[]>;
+  concurrent: () => Promise<A[]>;
 };
 
 export const lazyList = <A extends unknown>(
-  generator: Generator<A>,
+  generator: Generator<A> | AsyncGenerator<A> | A[],
 ): LazyList<A> => {
   const mapFns: ((arg: unknown) => unknown)[] = [];
   const self: LazyList<A> = {
@@ -30,14 +31,19 @@ export const lazyList = <A extends unknown>(
       return self as LazyList<A>;
     },
     take: (count) => {
-      const prevGenerator = generator;
-      generator = function* () {
-        for (let i = 0; i < count; i++) {
-          const { value, done } = prevGenerator.next();
-          if (done) return value;
-          yield value;
-        }
-      }();
+      // check if this is a generator
+      if ("next" in generator) {
+        const prevGenerator = generator;
+        generator = async function* () {
+          for (let i = 0; i < count; i++) {
+            const { value, done } = await prevGenerator.next();
+            if (done) return value;
+            yield value;
+          }
+        }();
+      } else {
+        generator = generator.slice(0, count);
+      }
       return self;
     },
     sequential: async () => {
@@ -50,6 +56,16 @@ export const lazyList = <A extends unknown>(
         results.push(value as A);
       }
       return results;
+    },
+    concurrent: async () => {
+      const promises: Promise<A>[] = [];
+      for await (const element of generator) {
+        promises.push(mapFns.reduce(
+          (chain, fn) => chain.then(fn),
+          Promise.resolve(element as unknown),
+        ) as Promise<A>);
+      }
+      return await Promise.all(promises);
     },
   };
   return self;

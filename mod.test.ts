@@ -14,11 +14,45 @@ function* numberGenerator() {
   }
 }
 
+async function* asyncNumberGenerator() {
+  let i = 1;
+  while (true) {
+    await sleep(10);
+    yield* [i++, i++, i++];
+  }
+}
+
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+Deno.test("use the list with async generators", async () => {
+  const result = await lazyList(asyncNumberGenerator())
+    .take(5)
+    .concurrent();
+  assertEquals(result, [1, 2, 3, 4, 5]);
+});
+
 Deno.test("run the pipeline one-by-one with `.sequential`", async () => {
-  const result = await lazyList(abcdGenerator()).sequential();
-  assertEquals(result, abcdArray);
+  const order: number[] = [];
+  const result = await lazyList([40, 30, 20, 10])
+    .each(async (num: number) => {
+      await sleep(num);
+      order.push(num);
+    })
+    .sequential();
+  assertEquals(order, [40, 30, 20, 10]);
+  assertEquals(result, [40, 30, 20, 10]);
+});
+
+Deno.test("run promises all at once with `.concurrent`", async () => {
+  const order: number[] = [];
+  const result = await lazyList([40, 30, 20, 10])
+    .each(async (num: number) => {
+      await sleep(num);
+      order.push(num);
+    })
+    .concurrent();
+  assertEquals(order, [10, 20, 30, 40]);
+  assertEquals(result, [40, 30, 20, 10]);
 });
 
 Deno.test("map values using (potentially async) functions with `.map`", async () => {
